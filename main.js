@@ -1,3 +1,21 @@
+// ==UserScript==
+// @name         GEAS with HiCOS
+// @namespace    http://tampermonkey.net/
+// @version      2024021701
+// @description  小幫手
+// @author       周詳
+// @match        https://geas.dgbas.gov.tw/*
+// @match        https://geas.moda.gov.tw/*
+// @icon         https://www.google.com/s2/favicons?sz=64&domain=gov.tw
+// @grant        none
+// @license MIT
+// @downloadURL https://update.greasyfork.org/scripts/486021/GEAS%20with%20HiCOS.user.js
+// @updateURL https://update.greasyfork.org/scripts/486021/GEAS%20with%20HiCOS.meta.js
+// ==/UserScript==
+
+
+'use strict';
+
 function init() {
     var script = document.createElement("script");
     script.src = "https://fido.moi.gov.tw//pt/assets/ChtICToken.js";
@@ -8,7 +26,7 @@ function init() {
         pkilogin.insertAdjacentHTML('afterend', newElementHTML);
         document.getElementById("hicos").addEventListener("click", loginClicked);
     }
- 
+
     // register
     var registerHTML = '<input type="button" id="new-register" value="跨平台版卡號註冊">';
     var registerInputElem = document.querySelector("body > div > div.content.clear_pdTop > div > form > div.btn > div.left > input")
@@ -16,8 +34,16 @@ function init() {
         registerInputElem.insertAdjacentHTML('afterend', registerHTML);
         document.getElementById("new-register").addEventListener("click", registerClicked);
     }
+
+    // sign
+    var poolTable = document.querySelector("table#myTable");
+    var signHTML = '<input type="button" id="sign-all" value="簽章">';
+    if (poolTable) {
+        poolTable.insertAdjacentHTML('afterend', signHTML);
+        document.getElementById("sign-all").addEventListener("click", signClicked);
+    }
 }
- 
+
 function makerandomletter() {
     var a = "",
         b = new Uint32Array(1);
@@ -26,13 +52,73 @@ function makerandomletter() {
         a += b[c];
     return a
 }
- 
+
 function registerClicked() {
-    loginClicked({mode: 'register'});
+    loginClicked({ mode: 'register' });
 }
- 
- 
-function loginClicked({mode = 'login'}) {
+
+var dataPool = {};
+function signClicked() {
+    dataPool = {
+        idx: {},
+        case: {}
+    };
+    $('input', $('table#myTable')).each(function () {
+        var theId = '' + $(this).attr('id');
+        var idParts = theId.split('_');
+        if (idParts.length === 2) {
+            if (!dataPool.idx[idParts[1]]) {
+                dataPool.idx[idParts[1]] = {};
+            }
+            dataPool.idx[idParts[1]][idParts[0]] = $(this).val();
+        }
+    });
+    const requestOptions = {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: new URLSearchParams({
+            action: "get"
+        }).toString()
+    };
+    fetch('/iftwf/ajax_server/get_all_batch.php', requestOptions)
+        .then(response => response.json())
+        .then(data => {
+            var k = '';
+            for (k in dataPool.idx) {
+                if (dataPool.idx[k]['shtno']) {
+                    dataPool.case[dataPool.idx[k]['shtno']] = dataPool.idx[k];
+                }
+            }
+            $.each(data.batches, function (k, v) {
+                $.ajax({
+                    url: '/iftwf/WF9T08J.php',
+                    data: {
+                        j_ProcType: 'Proc',
+                        j_epno: $('input#f_epno').val(), //處理人epno, ex. 000385
+                        j_fileno: v, //處理的表單shtno
+                        j_flow_btn_name: 'NewForm',
+                        f_depute: '',
+                        stpname: dataPool.case[v].stepname, // ex. 申請人主管
+                        prcepno: dataPool.case[v].procepno, // ex. 000047
+                        procdesc: ''
+                    },
+                    error: function (xhr) {
+                        console.log('error');
+                        console.log(xhr);
+                    },
+                    success: function (response) {
+                        var data_arr = response.split("-_-");
+                        console.log(data_arr);
+                    }
+                });
+            })
+        });
+}
+
+
+function loginClicked({ mode = 'login' }) {
     var cardnum = "",
         tbs = "",
         B64Signature = "";
@@ -40,12 +126,12 @@ function loginClicked({mode = 'login'}) {
     var pkcs7 = "";
     let pin = prompt("請輸入PIN碼", "");
     makeSignature(pin);
- 
+
     function makeSignature(a) {
         tbs = batchsign2.random;
         getICToken().goodDay(SignDo)
     }
- 
+
     function CardNumMsg() {
         var l_oToken = getICToken();
         console.log(l_oToken.RetObj);
@@ -56,10 +142,10 @@ function loginClicked({mode = 'login'}) {
             consoloe.log(l_oToken.RetObj.RMsg);
             //alert("簽章時發生錯誤，錯誤碼：" + l_oToken.RetObj.RCode+", 錯誤原因：" + l_oToken.RetObj.RMsg);
         }
- 
+
         var returnCode = l_oToken.RetObj.RCode;
     }
- 
+
     function SignDo() {
         var a = getICToken();
         if (0 == a.RetObj.RCode) {
@@ -70,14 +156,14 @@ function loginClicked({mode = 'login'}) {
         } else
             console.log(a.RetObj.RCode, a.RetObj.RMsg);
     }
- 
+
     function SignRetMsg() {
         var a = getICToken();
         var l_oToken = getICToken();
         if (l_oToken.RetObj.RCode == 0) {
             B64Signature = l_oToken.RetObj.B64Signature;
             pkcs1 = B64Signature;
-            console.log("pkcs1: " +pkcs1);
+            console.log("pkcs1: " + pkcs1);
             var b = btoa(tbs);
             //b = encodeURIComponent(b);
             a.getSmartCardID(CardNumMsg);
@@ -90,7 +176,7 @@ function loginClicked({mode = 'login'}) {
             console.log(l_oToken.RetObj.RMsg);
         }
     }
- 
+
     function SignRetMsg2() {
         var a = getICToken();
         var l_oToken = getICToken();
@@ -106,7 +192,7 @@ function loginClicked({mode = 'login'}) {
                 body: "action=checkLoginLock&f_id="
             };
             fetch('/iftop/ajax_server/ajax_login.server.php', req);
- 
+
             const requestOptions = {
                 method: 'POST',
                 headers: {
@@ -129,13 +215,13 @@ function loginClicked({mode = 'login'}) {
                         alert(data.msg);
                     }
                 });
- 
- 
+
+
         } else {
             console.log(l_oToken.RetObj.RMsg);
         }
     }
- 
+
     function doRegister() {
         var a = getICToken();
         var l_oToken = getICToken();
@@ -143,7 +229,7 @@ function loginClicked({mode = 'login'}) {
             B64Signature = l_oToken.RetObj.B64Signature;
             pkcs7 = B64Signature;
             console.log("pkcs7: " + pkcs7);
- 
+
             const requestOptions = {
                 method: 'POST',
                 headers: {
@@ -172,12 +258,12 @@ function loginClicked({mode = 'login'}) {
                         alert(data.msg);
                     }
                 });
- 
- 
+
+
         } else {
             console.log(l_oToken.RetObj.RMsg);
         }
     }
 }
- 
+
 init();
